@@ -5,6 +5,10 @@ Downloads magazines from the [Economist](http://economist.com), converts them to
 
 Details at [nicj.net](http://nicj.net/2009/04/13/the-economist-and-the-kindle).
 
+NOTE: This script attempts to work with the most recent Economist editions on economist.com.  Older editions may have different formatting that is incompatible with the current script.  If want to view an older edition and the current script doesn't work, take a look at previous versions of this script.
+
+If this script doesn't work, please check for the latest version at [github](https://github.com/nicjansma/economist-to-kindle).  The economist.com changes often and may break this script.
+
 Instructions
 ------------
 1. Open `economist-to-kinde.php` and change any settings you need underneath this section:
@@ -22,6 +26,7 @@ Version History
 * 2010-01-25: Several bugfixes
 * 2011-05-02: Updates based on slifox and crosscode’s fixes.
 * 2011-07-26: Small update to work with the economist.com's latest updates
+* 2012-02-02: Fixes for the recent major changes to the economist.com's website
 
 Credits
 -------

@@ -92,10 +92,10 @@ $GLOBALS['loginPass']  = 'password';
 //
 // Load config from file (optional)
 //
-$configFile = dirname(__FILE__) . '/economist_to_kindle.config.php';
+$configFile = dirname(__FILE__) . '/economist-to-kindle.config.php';
 
 if (file_exists($configFile)) {
-    echo "Reading configuration from economist_to_kindle.config.php\n";
+    echo "Reading configuration from economist-to-kindle.config.php\n";
     include_once $configFile;
 }
 
@@ -147,7 +147,6 @@ if (is_dir($dateDirectory)) {
 }
 
 echo "Economist $dateLong ($date)\n";
-
 mkdir($dateDirectory);
 
 // work vars
@@ -220,8 +219,21 @@ function economistGetCurrentIssueDate(&$date, &$dateLong)
     $homePageContents = economistGetUrl('http://www.economist.com/printedition/');
 
     // <span class="article-date">January 17th 2009</span>
-    $start = strpos($homePageContents, '<span class="article-date">') + strlen('<span class="article-date">');
-    $end   = strpos($homePageContents, '</', $start);
+    $start = strpos($homePageContents, '<span class="article-date">');
+    if ($start !== false) {
+        $start += strlen('<span class="article-date">');
+    } else {
+        // <span class="issue-date">Feb 4th, 2012</span>
+        $start = strpos($homePageContents, '<span class="issue-date">');
+        if ($start !== false) {
+            $start += strlen('<span class="issue-date">');
+        } else {
+            echo 'Cannot find the article date!';
+            exit;
+        }
+    }
+
+    $end = strpos($homePageContents, '</', $start);
 
     // get date
     $pageDate = substr($homePageContents, $start, $end - $start);
@@ -230,7 +242,8 @@ function economistGetCurrentIssueDate(&$date, &$dateLong)
 }
 
 /**
- * Converts January 17th 2009 to 20090117
+ * Converts old-style: January 17th 2009 to 20090117
+ *          new-style: Feb 4th, 2012 to 20120204
  *
  * @param string $pageDate The page's date (eg January 17th 2009)
  *
@@ -240,25 +253,33 @@ function economistGetCurrentIssueDate(&$date, &$dateLong)
 function convertDate($pageDate)
 {
     $monthnames = array(
-                   '01' => 'January',
-                   '02' => 'February',
-                   '03' => 'March',
-                   '04' => 'April',
-                   '05' => 'May',
-                   '06' => 'June',
-                   '07' => 'July',
-                   '08' => 'August',
-                   '09' => 'September',
-                   '10' => 'October',
-                   '11' => 'November',
-                   '12' => 'December',
+                   'Jan' => '01',
+                   'Feb' => '02',
+                   'Mar' => '03',
+                   'Apr' => '04',
+                   'May' => '05',
+                   'Jun' => '06',
+                   'Jul' => '07',
+                   'Aug' => '08',
+                   'Sep' => '09',
+                   'Oct' => '10',
+                   'Nov' => '1',
+                   'Dec' => '12',
                   );
 
     $pieces = explode(' ', $pageDate);
 
-    $day = (strlen($pieces[1]) === 4) ? substr($pieces[1], 0, 2) : '0' . substr($pieces[1], 0, 1);
+    $month = $pieces[0];
+    $day   = $pieces[1];
+    $year  = $pieces[2];
 
-    return $pieces[2] . array_search($pieces[0], $monthnames) . $day;
+    // strip comma from day
+    $day = str_replace(',', '', $day);
+
+    // remove 'th', 'nd', etc
+    $day = (strlen($day) === 4) ? substr($day, 0, 2) : '0' . substr($day, 0, 1);
+
+    return $year . $monthnames[substr($month, 0, 3)] . $day;
 }
 
 /**
@@ -272,7 +293,15 @@ function convertDate($pageDate)
 function convertDateLong($pageDate)
 {
     $pieces = explode(' ', $pageDate);
-    return substr($pieces[0], 0, 3) . ' ' . substr($pieces[1], 0, -2) . ', ' . $pieces[2];
+
+    $month = $pieces[0];
+    $day   = $pieces[1];
+    $year  = $pieces[2];
+
+    // strip comma from day
+    $day = str_replace(',', '', $day);
+
+    return substr($month, 0, 3) . ' ' . substr($day, 0, -2) . ', ' . $year;
 }
 
 /**
@@ -289,7 +318,7 @@ function convertDateLong($pageDate)
  */
 function createOPF($dateDirectory, $date, $dateLong, $withImages, $magazineFeatures)
 {
-    echo "Creating OPF file: economist_$date.opf...";
+    echo "Creating OPF file: economist_$date.opf...\n";
 
     $opfFile = $dateDirectory . "/economist_$date.opf";
 
@@ -365,19 +394,60 @@ function createOPF($dateDirectory, $date, $dateLong, $withImages, $magazineFeatu
  */
 function createTOC($dateDirectory, $date, $dateLong, &$urls, &$ids)
 {
-    echo 'Creating table of contents file: mbp_toc.html...';
+    echo "Creating table of contents file: mbp_toc.html...\n";
 
-    $pageContents = economistGetUrl("http://www.economist.com/printedition/index.cfm?d=$date");
+    //
+    // NOTE: Old-style URLs were: http://www.economist.com/printedition/index.cfm?d=20120102;
+    //  Now they are http://www.economist.com/printedition/2012-01-02
+    //
 
-    $pageContents = strstr($pageContents, '<!-- section box --><div class="box style-2">');
+    // Download this edition's page
+    $dateNew = substr($date, 0, 4) . '-' . substr($date, 4, 2) . '-' . substr($date, 6, 2);
 
+    $tocUrl = "http://www.economist.com/printedition/$dateNew";
+
+    $pageContents = economistGetUrl($tocUrl);
+
+    // sanity check we have valid content
+    if (strpos($pageContents, 'Page not found') !== false) {
+        echo "DEBUG: Page not found!!!\n";
+        exit;
+    }
+
+    //
+    // chop to the beginning of the article list
+    //
+    if (strpos($pageContents, '<!-- section box --><div class="box style-2">') !== false) {
+        // old-style
+        $pageContents = strstr($pageContents, '<!-- section box --><div class="box style-2">');
+    } else if (strpos($pageContents, '<div id="column-content"') !== false) {
+        // new-style
+        $pageContents = strstr($pageContents, '<div id="column-content"');
+    } else {
+        echo "DEBUG: Unknown begginning of articles!!!\n";
+        exit;
+    }
+
+    //
+    // chop off the end of the article list
+    //
+
+    // old-style
     $searchPos = false;
     $endPos    = 0;
     while (($searchPos = strpos($pageContents, '</div><!-- end section box -->', $endPos)) !== false) {
         $endPos = $searchPos + strlen('</div><!-- end section box -->');
     }
 
-    $pageContents = substr($pageContents, 0, $endPos);
+    if ($endPos > 0) {
+        $pageContents = substr($pageContents, 0, $endPos);
+    }
+
+    // new-style
+    $endPos = strpos($pageContents, '<!-- /#column-content -->');
+    if ($endPos > 0) {
+        $pageContents = substr($pageContents, 0, $endPos);
+    }
 
     // remove banners
     $pageContents = preg_replace('/<div class="box">([[:space:]])*<div class="content-banner">([[:space:]])*<div align="center">(.*?)<\/div>([[:space:]])*<\/div>([[:space:]])*<\/div>/s',
@@ -405,17 +475,18 @@ function createTOC($dateDirectory, $date, $dateLong, &$urls, &$ids)
                                  $pageContents);
 
     // get urls of all article pages, for use in createHTML func
-    preg_match_all('/<a href="(.*?)">/', $pageContents, $matches);
+    preg_match_all('/<a href="(\/node\/[0-9]+)"/', $pageContents, $matches);
     $urls = $matches[1];
 
     // get ids like 10808848 that we will use for <a name=10808848> to link TOC with html file
-    preg_match_all('/<a href=".*?(\w*)">/', $pageContents, $ids);
+    preg_match_all('/<a href="\/node\/([0-9]+)"/', $pageContents, $ids);
     $ids = $ids[1];
 
     // get the IDs and titles of each page, for the XML TOC
     preg_match_all('#<a href=".*?(\w*)">(.*?)</a>#', $pageContents, $names_ids);
 
-    // handle those without <em>sub title</em>, add <br> like The World This Week section
+    // replace /node/123 links to economist.html#123
+    $pageContents = preg_replace('/<a href="\/node\//s', '<a href="economist.html#', $pageContents);
 
     // regex for June 2010 and on (pattern repeated two more times below)
     $pageContentsTmp = preg_replace('/<span class="type"><em><\/em><\/span><h2><a href=".*?(\d*)">(.*?)<\/a>&nbsp;<\/h2>/',
@@ -459,11 +530,14 @@ function createTOC($dateDirectory, $date, $dateLong, &$urls, &$ids)
     $pageContents = preg_replace('/<h1>(.*?)<\/h1>/', '<h2>$1</h2>', $pageContents);
 
     // get the names of each section and a count of their hrefs
-    $sections = explode('<!-- end section box -->', $pageContents);
+    $sections    = explode('class="section"', $pageContents);
+    $sectionList = array();
+
     foreach ($sections as $section) {
-        if (preg_match('#<h2>([^<]+)</h2>#', $section, $matches) != 0) {
+        if (preg_match('/<h4>([^<]+)<\/h4>/', $section, $matches) != 0) {
             $article_count = substr_count($section, 'href=');
             $sectionList[] = array($matches[1], $article_count);
+            echo 'Sections: ' . $matches[1] .  " has $article_count articles\n";
         }
     }
 
@@ -585,11 +659,22 @@ function createHTML($dateDirectory, $withImages, $urls, $ids)
     // write all urls
     echo "Creating articles file: economist.html:\n";
     for ($i = 0; $i < count($urls); $i++) {
+
+        // filter out some URLs
+        if (   stristr($urls[$i], '/comments') !== false
+            || stristr($urls[$i], '/subscribe') !== false
+            || stristr($urls[$i], '/covers') !== false) {
+            continue;
+        }
+
         $url = (substr($urls[$i], 0, 5) === 'http:') ? $urls[$i] : 'http://www.economist.com/' . $urls[$i];
+        $url = str_replace('.com//', '.com/', $url);
+
         echo "\t$url\n";
 
         // download article
-        $article = economistGetUrl($url);
+        $article   = economistGetUrl($url);
+        $articleId = $ids[$i];
 
         if ($article === '') {
             echo "\t\tERROR in downloading!\n";
@@ -615,13 +700,19 @@ function createHTML($dateDirectory, $withImages, $urls, $ids)
             //   eat characters up to the first '>'
             //
             $closeTag = strpos($content, '>');
-            $content = substr($content, $closeTag + 1);
+            if ($closeTag > 0) {
+                $content = substr($content, $closeTag + 1);
+            }
 
-            preg_match('#<div class=.headline.>([^\<]+)#', $content, $matches);
-            $headline = $matches[1];
+            $headline = '(unknown headline)';
+            if (preg_match('#<div class=.headline.>([^\<]+)#', $content, $matches) > 0) {
+                $headline = $matches[1];
+            } else if (preg_match('#<h[1-5] class=.headline.>([^\<]+)#', $content, $matches) > 0) {
+                $headline = $matches[1];
+            }
 
             // add TOC link to article
-            $content = preg_replace('/<div class="headline">/', '<div class="headline" id="' . $ids[$i] . '">', $content);
+            $content = preg_replace('/class="headline"/', 'class="headline" id="' . $articleId . '"', $content);
 
             echo "\t\t=> " . $headline ."\n";
 
@@ -637,7 +728,7 @@ function createHTML($dateDirectory, $withImages, $urls, $ids)
             $content  = substr($content, 0, $endPos) . '</div>';
 
             // add TOC link to article
-            $content = preg_replace('/<h1>/', '<h1 id="' . $ids[$i] . '">', $content);
+            $content = preg_replace('/<h1>/', '<h1 id="' . $articleId . '">', $content);
         }
 
         // get rid of this: <p class="info">Feb 28th 2008<br>From <em>The Economist</em> print edition</p>
@@ -652,6 +743,7 @@ function createHTML($dateDirectory, $withImages, $urls, $ids)
         // allow inside-links
         $content = preg_replace('/<a href="displaystory.cfm\?story_id=/s', '<a href="#', $content);
         $content = preg_replace('/<a href="\/node\//s', '<a href="#', $content);
+        $content = preg_replace('/<a href="http:\/\/www.economist.com\/node\//s', '<a href="#', $content);
 
         // add extra line above section headers
         $content = preg_replace('#</a><br \/>#', '</a><br><br>', $content);
@@ -688,7 +780,6 @@ function createHTML($dateDirectory, $withImages, $urls, $ids)
 function handleImages($content, $dateDirectory)
 {
     preg_match_all('/<img src="(.*?)"/', $content, $matches);
-
     $imgUrls = $matches[1];
 
     // space added after ", to handle this case where it was grabbing " in a name
@@ -717,8 +808,11 @@ function handleImages($content, $dateDirectory)
     // reformat img html: change image url, center, remove picture taker info from the top, remove div and width and height
     $content = preg_replace('/<div class="content-image.*?<img src="[^"]*?\/([^\/]+)".*?>(.*?)<\/div>/', '<center><img src="$1">$2</center>', $content);
 
-    //change format of caption to be italics
+    // change format of caption to be italics
     $content = preg_replace('/<span class="caption">(.*?)<\/span>/', '<br><em>$1</em>', $content);
+
+    // keep img URLs just as their names without a path
+    $content = preg_replace('/<img src="[^"]*?\/([^\/]+)".*?>/', '<img src="$1" />', $content);
 
     return $content;
 }
@@ -869,6 +963,7 @@ function economistLogin()
  */
 function economistGetUrl($url)
 {
+    echo "Downloading $url ...";
     $ch = curl_init();
 
     // connect timeout
@@ -889,6 +984,8 @@ function economistGetUrl($url)
     $html = curl_exec($ch);
 
     curl_close($ch);
+
+    echo " done!\n";
 
     return $html;
 }
