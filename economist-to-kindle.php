@@ -36,8 +36,7 @@ $issueDir = $baseDir . '/issues';
 //
 // location of mobigen_linux executable
 //
-//$mobigenFile = $baseDir . '/mobigen_linux';
-$mobigenExec = '/usr/local/bin/mobigen_linux';
+$mobigenExec = $baseDir . '/mobigen_linux';
 
 //
 // get images for the articles
@@ -475,18 +474,18 @@ function createTOC($dateDirectory, $date, $dateLong, &$urls, &$ids)
                                  $pageContents);
 
     // get urls of all article pages, for use in createHTML func
-    preg_match_all('/<a href="(\/node\/[0-9]+)"/', $pageContents, $matches);
+    preg_match_all('/<a href="(\/news\/[a-zA-Z\-]+\/[0-9A-Za-z\-]+)"/', $pageContents, $matches);
     $urls = $matches[1];
 
     // get ids like 10808848 that we will use for <a name=10808848> to link TOC with html file
-    preg_match_all('/<a href="\/node\/([0-9]+)"/', $pageContents, $ids);
+    preg_match_all('/<a href="\/news\/[a-zA-Z\-]+\/([0-9]+)[0-9a-zA-Z\-]+"/', $pageContents, $ids);
     $ids = $ids[1];
 
     // get the IDs and titles of each page, for the XML TOC
     preg_match_all('#<a href=".*?(\w*)">(.*?)</a>#', $pageContents, $names_ids);
 
     // replace /node/123 links to economist.html#123
-    $pageContents = preg_replace('/<a href="\/node\//s', '<a href="economist.html#', $pageContents);
+    $pageContents = preg_replace('/<a href="\/news\/[a-zA-Z\-]+\/([0-9]+)[0-9a-zA-Z\-]+/s', '<a href="economist.html#$1', $pageContents);
 
     // regex for June 2010 and on (pattern repeated two more times below)
     $pageContentsTmp = preg_replace('/<span class="type"><em><\/em><\/span><h2><a href=".*?(\d*)">(.*?)<\/a>&nbsp;<\/h2>/',
@@ -742,8 +741,8 @@ function createHTML($dateDirectory, $withImages, $urls, $ids)
 
         // allow inside-links
         $content = preg_replace('/<a href="displaystory.cfm\?story_id=/s', '<a href="#', $content);
-        $content = preg_replace('/<a href="\/node\//s', '<a href="#', $content);
-        $content = preg_replace('/<a href="http:\/\/www.economist.com\/node\//s', '<a href="#', $content);
+        $content = preg_replace('/<a href="\/news\/[a-zA-Z\-]+\/([0-9]+)[0-9a-zA-Z\-]+/s', '<a href="#$1', $content);
+        $content = preg_replace('/<a href="http:\/\/www.economist.com\/news\/[a-zA-Z\-]+\/([0-9]+)[0-9a-zA-Z\-]+/s', '<a href="#$1', $content);
 
         // add extra line above section headers
         $content = preg_replace('#</a><br \/>#', '</a><br><br>', $content);
